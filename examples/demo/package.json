@@ -1,0 +1,8 @@
+{
+  "name": "proofpatch-demo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node checks.js"
+  }
+}

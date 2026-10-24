@@ -1,0 +1,32 @@
+{
+  "checks": [
+    {
+      "name": "Tests",
+      "command": "npm test",
+      "timeoutMs": 120000
+    },
+    {
+      "name": "Build",
+      "command": "npm run build",
+      "timeoutMs": 120000
+    }
+  ],
+  "browser": {
+    "baseUrl": "http://127.0.0.1:3000",
+    "startCommand": "npm run dev -- --host 127.0.0.1",
+    "startupTimeoutMs": 30000,
+    "timeoutMs": 15000,
+    "scenarios": [
+      {
+        "name": "Homepage shows a welcome message",
+        "path": "/",
+        "steps": [
+          {
+            "action": "expectText",
+            "text": "Welcome"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "name": "proofpatch",
+  "version": "0.1.0",
+  "description": "Run project checks and browser scenarios with evidence you can review.",
+  "type": "module",
+  "bin": {
+    "proofpatch": "bin/proofpatch.js"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "docs/",
+    "CONTRIBUTING.md",
+    "AGENTS.md",
+    "proofpatch.schema.json",
+    "examples/proofpatch.config.json",
+    "examples/demo/package.json",
+    "examples/demo/proofpatch.config.json",
+    "examples/demo/*.js"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test",
+    "check": "node scripts/check.js",
+    "demo": "node bin/proofpatch.js verify --cwd examples/demo"
+  },
+  "optionalDependencies": {
+    "playwright": "^1.64.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Enerep/PROOFPATCH.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Enerep/PROOFPATCH/issues"
+  },
+  "homepage": "https://github.com/Enerep/PROOFPATCH#readme",
+  "license": "MIT"
+}
