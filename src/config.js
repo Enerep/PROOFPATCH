@@ -3,6 +3,7 @@ import path from 'node:path';
 
 const SCRIPT_NAMES = ['test', 'lint', 'typecheck', 'build'];
 const MAX_TIMEOUT_MS = 3_600_000;
+const REQUIREMENT_ID = /^[a-z][a-z0-9-]{0,63}$/;
 const LOCKFILES = {
   npm: ['package-lock.json', 'npm-shrinkwrap.json'],
   pnpm: ['pnpm-lock.yaml'],
@@ -60,16 +61,50 @@ function uniqueNames(items, location) {
   }
 }
 
-function validateChecks(checks) {
+function requirementId(value, location) {
+  if (typeof value !== 'string' || value.trim() !== value || !REQUIREMENT_ID.test(value)) {
+    throw new Error(`${location} must be a lowercase slug starting with a letter, containing only letters, numbers, or hyphens, and at most 64 characters.`);
+  }
+  return value;
+}
+
+function validateRequirements(requirements = []) {
+  if (!Array.isArray(requirements)) throw new Error('requirements must be an array.');
+  const ids = new Set();
+  return requirements.map((requirement, index) => {
+    const location = `requirements[${index}]`;
+    object(requirement, location);
+    fields(requirement, ['id', 'description'], location);
+    const id = requirementId(requirement.id, `${location}.id`);
+    if (ids.has(id)) throw new Error(`requirements contains duplicate ID "${id}".`);
+    ids.add(id);
+    return { id, description: string(requirement.description, `${location}.description`).trim() };
+  });
+}
+
+function validateRequirementReferences(references = [], ids, location) {
+  if (!Array.isArray(references)) throw new Error(`${location} must be an array of requirement IDs.`);
+  const seen = new Set();
+  return references.map((reference, index) => {
+    const id = requirementId(reference, `${location}[${index}]`);
+    if (seen.has(id)) throw new Error(`${location} contains duplicate requirement ID "${id}".`);
+    if (!ids.has(id)) throw new Error(`${location}[${index}] refers to undeclared requirement "${id}".`);
+    seen.add(id);
+    return id;
+  });
+}
+
+function validateChecks(checks, requirementIds) {
   if (!Array.isArray(checks)) throw new Error('checks must be an array.');
   const result = checks.map((check, index) => {
     const location = `checks[${index}]`;
     object(check, location);
-    fields(check, ['name', 'command', 'timeoutMs'], location);
+    fields(check, ['name', 'command', 'timeoutMs', 'requirements'], location);
     return {
       name: string(check.name, `${location}.name`).trim(),
       command: string(check.command, `${location}.command`),
       timeoutMs: timeout(check.timeoutMs, 120_000, `${location}.timeoutMs`),
+      requirements: validateRequirementReferences(check.requirements, requirementIds, `${location}.requirements`),
     };
   });
   uniqueNames(result, 'checks');
@@ -102,7 +137,7 @@ function validateStep(step, location) {
   }
 }
 
-function validateBrowser(browser) {
+function validateBrowser(browser, requirementIds) {
   if (browser === undefined || browser === null) return null;
   object(browser, 'browser');
   fields(browser, ['baseUrl', 'startCommand', 'startupTimeoutMs', 'timeoutMs', 'scenarios'], 'browser');
@@ -131,7 +166,7 @@ function validateBrowser(browser) {
   const scenarios = browser.scenarios.map((scenario, index) => {
     const location = `browser.scenarios[${index}]`;
     object(scenario, location);
-    fields(scenario, ['name', 'path', 'steps'], location);
+    fields(scenario, ['name', 'path', 'steps', 'requirements'], location);
     const scenarioPath = scenario.path === undefined ? '/' : string(scenario.path, `${location}.path`);
     if (!scenarioPath.startsWith('/') || scenarioPath.startsWith('//') || /[\\\u0000-\u001f\u007f]/.test(scenarioPath)) {
       throw new Error(`${location}.path must start with a single / and stay on browser.baseUrl's origin.`);
@@ -145,6 +180,7 @@ function validateBrowser(browser) {
       name: string(scenario.name, `${location}.name`).trim(),
       path: scenarioPath,
       steps: steps.map((step, stepIndex) => validateStep(step, `${location}.steps[${stepIndex}]`)),
+      requirements: validateRequirementReferences(scenario.requirements, requirementIds, `${location}.requirements`),
     };
   });
   uniqueNames(scenarios, 'browser.scenarios');
@@ -203,7 +239,7 @@ async function discoverChecks(cwd) {
       continue;
     }
     string(script, `package.json.scripts.${name}`);
-    checks.push({ name, command: `${manager} run ${name}`, timeoutMs: 120_000 });
+    checks.push({ name, command: `${manager} run ${name}`, timeoutMs: 120_000, requirements: [] });
   }
   return { checks, skipped };
 }
@@ -213,19 +249,22 @@ export async function loadConfig(cwd) {
   const config = await readJson(path.join(cwd, 'proofpatch.config.json'), true);
   if (config !== undefined) {
     object(config, 'proofpatch.config.json');
-    fields(config, ['$schema', 'checks', 'browser'], 'proofpatch.config.json');
+    fields(config, ['$schema', 'checks', 'browser', 'requirements'], 'proofpatch.config.json');
     if (config.$schema !== undefined) string(config.$schema, '$schema');
   }
-  const browser = validateBrowser(config?.browser);
+  const requirements = validateRequirements(config?.requirements);
+  const requirementIds = new Set(requirements.map(({ id }) => id));
+  const browser = validateBrowser(config?.browser, requirementIds);
   const discovered = config?.checks === undefined
     ? await discoverChecks(cwd)
-    : { checks: validateChecks(config.checks), skipped: [] };
-  if (!discovered.checks.length && !browser) {
+    : { checks: validateChecks(config.checks, requirementIds), skipped: [] };
+  if (!discovered.checks.length && !browser && !requirements.length) {
     throw new Error('No checks found. Add test, lint, typecheck, or build scripts to package.json, or create proofpatch.config.json with a command check or browser scenario.');
   }
   return {
     ...discovered,
     browser,
+    requirements,
     source: config === undefined ? 'package.json' : 'proofpatch.config.json',
   };
 }

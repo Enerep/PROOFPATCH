@@ -27,7 +27,7 @@ Commands use your system shell from the project directory. Custom commands can v
 
 Commands default to a two-minute timeout. Output is limited to 1 MiB each for stdout and stderr, with a truncation marker. The runner sets `CI=1` unless you already set it, to discourage interactive prompts and watch mode. Background processes in a command's process group are stopped on Unix. On Windows, cleanup uses `taskkill`; commands should not leave background processes after exiting.
 
-If `checks` is omitted, package scripts are discovered. To run only browser scenarios, set `"checks": []` and configure `browser`. At least one command or browser scenario is required.
+If `checks` is omitted, package scripts are discovered. To run only browser scenarios, set `"checks": []` and configure `browser`. A configuration needs at least one command, browser scenario, or declared requirement. Requirements without executable checks produce an `INCOMPLETE` result.
 
 ## Browser actions
 
@@ -70,18 +70,64 @@ HTTP errors, uncaught page errors, console errors, and failed requests observed 
 
 Browser checks need ProofPatch's optional Playwright dependency and `npx playwright install chromium`. Command checks work without it. For an existing Chromium installation, set `PROOFPATCH_CHROMIUM_EXECUTABLE_PATH` to its executable path. Chromium may need system libraries on Linux; see Playwright's installation instructions or run `npx playwright install --with-deps chromium` on a suitable machine.
 
+## Link acceptance criteria to checks
+
+Declare the requested behavior with stable IDs in the top-level `requirements` array. Each command check or browser scenario can reference those IDs in its own `requirements` array:
+
+```json
+{
+  "requirements": [
+    { "id": "add-note", "description": "Users can add a note" },
+    { "id": "reject-blank", "description": "Blank notes are rejected" }
+  ],
+  "checks": [],
+  "browser": {
+    "baseUrl": "http://127.0.0.1:4173",
+    "startCommand": "node server.js",
+    "scenarios": [
+      {
+        "name": "Add a note",
+        "requirements": ["add-note"],
+        "path": "/",
+        "steps": [
+          { "action": "fill", "selector": "input[name=note]", "value": "Ship it" },
+          { "action": "click", "selector": "button[type=submit]" },
+          { "action": "expectText", "selector": "#notes", "text": "Ship it" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+This configuration matches the notes demo's server and selectors. If the browser scenario passes, `add-note` is `passed`. `reject-blank` has no linked check, so it is `unverified`. The overall result is `INCOMPLETE` with exit code `1`, even though the executed check passed.
+
+To link a command instead, add `"requirements": ["requirement-id"]` to its check entry. Link it only when that command's assertions meaningfully test the described behavior. A passing unit test for trimming text does not establish that the app lets a user add a note.
+
+| Requirement status | Meaning |
+| --- | --- |
+| `passed` | At least one result is linked, and every linked result passed. |
+| `failed` | At least one linked result failed. |
+| `unverified` | No result is linked, or a linked result was skipped and none failed. |
+
+Failed checks make the overall result `FAILED`. If no check failed but a declared requirement is unverified, the result is `INCOMPLETE`. A requirements-only plan is valid: use `"checks": []` and list the requirements to record an incomplete plan before writing tests. Configurations without requirement declarations keep the existing check-based behavior.
+
+ProofPatch records the links you provide. It does not compare requirements to source code, generate tests, or judge whether an assertion is strong enough. Preserve the acceptance criteria and report missing coverage explicitly. See [working with coding assistants](assistants.md) for a practical workflow.
+
 ## Reports and CI
 
 ```sh
 proofpatch verify --json
 ```
 
-This prints the full JSON report to stdout and progress to stderr. Every run also saves `.proofpatch/<run-id>/report.json` and `report.md`, together with logs and screenshots. JSON includes the tool version, platform, Git commit and working-tree state when available, check results, durations, reasons, and artifact paths. Browser evidence records actions, expected text, and how many steps completed. Filled values are redacted in the step list; screenshots can still show them. Artifact paths are relative to the run directory. Reports are local evidence, without signing or tamper protection.
+This prints the full JSON report to stdout and progress to stderr. Every run also saves `.proofpatch/<run-id>/report.json` and `report.md`, together with logs and screenshots. JSON includes the tool version, platform, Git commit and working-tree state when available, check results, requirement results when declared, durations, reasons, and artifact paths. Browser evidence records actions, expected text, and how many steps completed. Filled values are redacted in the step list; screenshots can still show them. Artifact paths are relative to the run directory. Reports are local evidence, without signing or tamper protection.
+
+JSON reports use `schemaVersion: 2`. The `requirements` array records each declaration's status, reason, and linked check evidence; `requirementSummary` contains the `passed`, `failed`, and `unverified` totals. `summary.status` can now be `incomplete` as well as `passed` or `failed`. Plans without declared requirements have an empty `requirements` array and zero requirement totals.
 
 | Exit code | Meaning |
 | --- | --- |
-| `0` | Every executed check passed; skipped checks remain unverified. |
-| `1` | A command or browser check failed. |
+| `0` | `PASSED`: executed checks passed and any declared requirements have passing linked results. Unlinked skipped checks remain unverified. |
+| `1` | `FAILED`: a check failed; or `INCOMPLETE`: a declared requirement has missing or skipped evidence. |
 | `2` | Invalid arguments, configuration, or a setup/write error. |
 | `130` | Run interrupted; a partial report is saved when possible. |
 

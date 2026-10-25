@@ -1,4 +1,10 @@
 {
+  "requirements": [
+    {
+      "id": "homepage",
+      "description": "The homepage shows a welcome message"
+    }
+  ],
   "checks": [
     {
       "name": "Tests",
@@ -19,6 +25,7 @@
     "scenarios": [
       {
         "name": "Homepage shows a welcome message",
+        "requirements": ["homepage"],
         "path": "/",
         "steps": [
           {

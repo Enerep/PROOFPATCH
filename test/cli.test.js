@@ -98,11 +98,99 @@ test('--cwd verifies another project', async (t) => {
   assert.equal(JSON.parse(output.stdout).summary.passed, 1);
 });
 
+test('passing checks leave an uncovered requirement incomplete in JSON and Markdown', async (t) => {
+  const cwd = await fixture(t, {
+    requirements: [
+      { id: 'save-note', description: 'Saving a note keeps its text.' },
+      { id: 'reject-blank', description: 'Blank notes are rejected.' },
+    ],
+    checks: [{ name: 'Save note', command: 'node check.cjs', requirements: ['save-note'] }],
+  });
+  await writeFile(join(cwd, 'check.cjs'), 'console.log("saved note retains its text");');
+  const output = await run(cwd, ['verify', '--json']);
+  assert.equal(output.code, 1, output.stderr);
+  const report = JSON.parse(output.stdout);
+  assert.equal(report.schemaVersion, 2);
+  assert.equal(report.summary.passed, 1);
+  assert.equal(report.summary.failed, 0);
+  assert.equal(report.summary.status, 'incomplete');
+  assert.deepEqual(report.requirementSummary, { passed: 1, failed: 0, unverified: 1 });
+  assert.equal(report.requirements.find(({ id }) => id === 'reject-blank').status, 'unverified');
+  const savedRequirement = report.requirements.find(({ id }) => id === 'save-note');
+  assert.equal(savedRequirement.status, 'passed');
+  assert.deepEqual(savedRequirement.checks[0].artifacts, ['check-1.stdout.log', 'check-1.stderr.log']);
+  assert.deepEqual(report.checks.find(({ name }) => name === 'Save note').requirements, ['save-note']);
+  const markdown = await readFile(join(cwd, report.reportDirectory, 'report.md'), 'utf8');
+  assert.match(markdown, /INCOMPLETE/);
+  assert.match(markdown, /reject-blank/);
+  assert.match(markdown, /unverified/i);
+  assert.match(markdown, /check-1.stdout.log/);
+  const humanOutput = await run(cwd, ['verify']);
+  assert.equal(humanOutput.code, 1);
+  assert.match(humanOutput.stdout, /UNVERIFIED\s+reject-blank/);
+  assert.match(humanOutput.stdout, /INCOMPLETE: 1 passed, 0 failed/);
+});
+
+test('all linked command results must pass to fulfill a requirement', async (t) => {
+  const cwd = await fixture(t, {
+    requirements: [{ id: 'validate-note', description: 'Note validation works.' }],
+    checks: [
+      { name: 'Accept valid notes', command: 'node pass.cjs', requirements: ['validate-note'] },
+      { name: 'Reject blank notes', command: 'node fail.cjs', requirements: ['validate-note'] },
+    ],
+  });
+  await writeFile(join(cwd, 'pass.cjs'), 'process.exitCode = 0;');
+  await writeFile(join(cwd, 'fail.cjs'), 'console.error("blank note accepted"); process.exitCode = 1;');
+  const failed = await run(cwd, ['verify', '--json']);
+  assert.equal(failed.code, 1);
+  const report = JSON.parse(failed.stdout);
+  assert.equal(report.summary.status, 'failed');
+  assert.equal(report.requirements[0].status, 'failed');
+  assert.equal(report.requirements[0].checks.length, 2);
+  await writeFile(join(cwd, 'fail.cjs'), 'process.exitCode = 0;');
+  const passed = await run(cwd, ['verify', '--json']);
+  assert.equal(passed.code, 0, passed.stderr);
+  assert.equal(JSON.parse(passed.stdout).requirements[0].status, 'passed');
+});
+
+test('requirement-only plans produce useful incomplete reports without executing commands', async (t) => {
+  const cwd = await fixture(t, {
+    requirements: [{ id: 'save-note', description: 'Users can save notes.' }], checks: [],
+  });
+  const output = await run(cwd, ['verify', '--json']);
+  assert.equal(output.code, 1, output.stderr);
+  const report = JSON.parse(output.stdout);
+  assert.equal(report.summary.status, 'incomplete');
+  assert.equal(report.summary.passed, 0);
+  assert.equal(report.requirements[0].status, 'unverified');
+  assert.deepEqual(report.requirements[0].checks, []);
+  assert.doesNotMatch(output.stderr, /RUN\s+/);
+});
+
+test('unknown requirement references fail validation before commands run', async (t) => {
+  const cwd = await fixture(t, {
+    requirements: [{ id: 'save-note', description: 'Users can save notes.' }],
+    checks: [{ name: 'Must not run', command: 'node check.cjs', requirements: ['save-notes'] }],
+  });
+  await writeFile(join(cwd, 'check.cjs'), 'require("node:fs").writeFileSync("command-ran", "yes");');
+  const output = await run(cwd, ['verify']);
+  assert.equal(output.code, 2);
+  assert.match(output.stderr, /save-notes/);
+  await assert.rejects(readFile(join(cwd, 'command-ran')), { code: 'ENOENT' });
+});
+
 test('interrupted CLI saves a failed partial report and exits 130', { skip: process.platform === 'win32', timeout: 10000 }, async (t) => {
   const cwd = await fixture(t, { checks: [
-    { name: 'Waiting', command: 'node wait.cjs' },
-    { name: 'Later', command: 'node wait.cjs' },
-  ] });
+    { name: 'Waiting', command: 'node wait.cjs', requirements: ['waiting'] },
+    { name: 'Later', command: 'node wait.cjs', requirements: ['later'] },
+  ], requirements: [
+    { id: 'waiting', description: 'The active check finishes.' },
+    { id: 'later', description: 'The later check runs.' },
+    { id: 'browser-step', description: 'The browser scenario runs.' },
+  ], browser: {
+    baseUrl: 'http://127.0.0.1:3000',
+    scenarios: [{ name: 'Later browser', requirements: ['browser-step'] }],
+  } });
   await writeFile(join(cwd, 'wait.cjs'), 'setInterval(() => {}, 1000);');
   const child = spawn(process.execPath, [cli, 'verify', '--json'], {
     cwd, env: { ...process.env, PROOFPATCH_RUNNING: '' }, stdio: ['ignore', 'pipe', 'pipe'],
@@ -128,5 +216,8 @@ test('interrupted CLI saves a failed partial report and exits 130', { skip: proc
   assert.equal(report.interrupted, true);
   assert.equal(report.summary.status, 'failed');
   assert.equal(report.checks.find((check) => check.name === 'Later').status, 'skipped');
+  assert.equal(report.requirements.find(({ id }) => id === 'later').status, 'unverified');
+  assert.equal(report.requirements.find(({ id }) => id === 'browser-step').status, 'unverified');
+  assert.equal(report.checks.find(({ name }) => name === 'Browser: Later browser').status, 'skipped');
   assert.match(await readFile(join(cwd, report.reportDirectory, 'report.md'), 'utf8'), /FAILED/);
 });
