@@ -25,12 +25,13 @@ test('discovers real scripts in a stable order and records missing scripts', asy
   });
   const config = await loadConfig(cwd);
   assert.deepEqual(config.checks, [
-    { name: 'test', command: 'npm run test', timeoutMs: 120_000 },
-    { name: 'build', command: 'npm run build', timeoutMs: 120_000 },
+    { name: 'test', command: 'npm run test', timeoutMs: 120_000, requirements: [] },
+    { name: 'build', command: 'npm run build', timeoutMs: 120_000, requirements: [] },
   ]);
   assert.deepEqual(config.skipped.map(({ name }) => name), ['lint', 'typecheck']);
   assert.equal(config.browser, null);
   assert.equal(config.source, 'package.json');
+  assert.deepEqual(config.requirements, []);
 });
 
 test('uses a declared package manager and recognizes its matching lockfile', async (t) => {
@@ -80,9 +81,10 @@ test('explicit checks support non-Node projects and bypass package script discov
     'package.json': 'invalid JSON that is irrelevant to explicit commands',
   });
   assert.deepEqual(await loadConfig(cwd), {
-    checks: [{ name: 'Python tests', command: 'python -m unittest', timeoutMs: 5000 }],
+    checks: [{ name: 'Python tests', command: 'python -m unittest', timeoutMs: 5000, requirements: [] }],
     skipped: [],
     browser: null,
+    requirements: [],
     source: 'proofpatch.config.json',
   });
 });
@@ -104,7 +106,7 @@ test('browser-only configuration supplies defaults and validates each supported 
     startupTimeoutMs: 30_000,
     timeoutMs: 15_000,
     startCommand: 'npm start',
-    scenarios: [{ name: 'Homepage', path: '/', steps }],
+    scenarios: [{ name: 'Homepage', path: '/', steps, requirements: [] }],
   });
   assert.deepEqual(config.checks, []);
   assert.deepEqual(config.skipped, []);
@@ -176,4 +178,131 @@ test('rejects unusable script and package manager declarations', async (t) => {
   await assert.rejects(loadConfig(cwd), /scripts.test must be a non-empty string/);
   await writeFile(path.join(cwd, 'package.json'), JSON.stringify({ packageManager: 'deno@2.0.0', scripts: { test: 'deno test' } }));
   await assert.rejects(loadConfig(cwd), /must name npm, pnpm, yarn, or bun/);
+});
+
+const requirements = [
+  { id: 'signup', description: 'Visitors can create an account.' },
+  { id: 'welcome-email', description: 'New accounts receive a welcome email.' },
+];
+
+test('normalizes declarations and preserves multiple command and scenario references', async (t) => {
+  const cwd = await project(t, {
+    'proofpatch.config.json': {
+      requirements: requirements.map((requirement) => ({ ...requirement, description: `  ${requirement.description}\n` })),
+      checks: [{ name: 'Signup tests', command: 'npm test', requirements: ['signup', 'welcome-email'] }],
+      browser: { ...browser, scenarios: [{ name: 'Signup flow', requirements: ['signup'] }] },
+    },
+  });
+  const config = await loadConfig(cwd);
+  assert.deepEqual(config.requirements, requirements);
+  assert.deepEqual(config.checks[0].requirements, ['signup', 'welcome-email']);
+  assert.deepEqual(config.browser.scenarios[0].requirements, ['signup']);
+});
+
+test('allows declared requirements without executable checks', async (t) => {
+  const cwd = await project(t, { 'proofpatch.config.json': { requirements, checks: [] } });
+  const config = await loadConfig(cwd);
+  assert.deepEqual(config.requirements, requirements);
+  assert.deepEqual(config.checks, []);
+  assert.deepEqual(config.skipped, []);
+  assert.equal(config.browser, null);
+});
+
+test('requirement-only plans can omit checks and discover none', async (t) => {
+  const cwd = await project(t, { 'proofpatch.config.json': { requirements } });
+  const config = await loadConfig(cwd);
+  assert.deepEqual(config.requirements, requirements);
+  assert.deepEqual(config.checks, []);
+  assert.deepEqual(config.skipped.map(({ name }) => name), ['test', 'lint', 'typecheck', 'build']);
+});
+
+test('declared requirements do not implicitly map discovered scripts', async (t) => {
+  const cwd = await project(t, {
+    'proofpatch.config.json': { requirements },
+    'package.json': { scripts: { test: 'node --test' } },
+  });
+  const config = await loadConfig(cwd);
+  assert.deepEqual(config.requirements, requirements);
+  assert.deepEqual(config.checks[0].requirements, []);
+});
+
+test('legacy configurations receive empty requirement arrays at every supported level', async (t) => {
+  const cwd = await project(t, {
+    'proofpatch.config.json': { checks: [{ name: 'Tests', command: 'npm test' }], browser },
+  });
+  const config = await loadConfig(cwd);
+  assert.deepEqual(config.requirements, []);
+  assert.deepEqual(config.checks[0].requirements, []);
+  assert.deepEqual(config.browser.scenarios[0].requirements, []);
+});
+
+test('accepts requirement IDs at the one-character and 64-character boundaries', async (t) => {
+  const ids = ['a', `a${'9'.repeat(63)}`];
+  const cwd = await project(t, {
+    'proofpatch.config.json': { requirements: ids.map((id) => ({ id, description: 'A requirement.' })), checks: [{ name: 'Tests', command: 'npm test', requirements: ids }] },
+  });
+  const config = await loadConfig(cwd);
+  assert.deepEqual(config.requirements.map(({ id }) => id), ids);
+  assert.deepEqual(config.checks[0].requirements, ids);
+});
+
+const invalidRequirements = [
+  ['null declaration list', null, /requirements must be an array/],
+  ['non-array declaration list', {}, /requirements must be an array/],
+  ['null declaration', [null], /requirements\[0\] must be an object/],
+  ['missing ID', [{ description: 'Some behavior.' }], /requirements\[0\]\.id must be a lowercase slug/],
+  ['empty ID', [{ id: '', description: 'Some behavior.' }], /must be a lowercase slug/],
+  ['uppercase ID', [{ id: 'Signup', description: 'Some behavior.' }], /must be a lowercase slug/],
+  ['digit-leading ID', [{ id: '1-signup', description: 'Some behavior.' }], /must be a lowercase slug/],
+  ['underscore in ID', [{ id: 'welcome_email', description: 'Some behavior.' }], /must be a lowercase slug/],
+  ['oversized ID', [{ id: `a${'b'.repeat(64)}`, description: 'Some behavior.' }], /must be a lowercase slug/],
+  ['whitespace in ID', [{ id: 'signup\n', description: 'Some behavior.' }], /must be a lowercase slug/],
+  ['duplicate IDs', [requirements[0], requirements[0]], /duplicate ID "signup"/],
+  ['missing description', [{ id: 'signup' }], /description must be a non-empty string/],
+  ['blank description', [{ id: 'signup', description: ' \n ' }], /description must be a non-empty string/],
+  ['non-string description', [{ id: 'signup', description: 7 }], /description must be a non-empty string/],
+  ['unknown declaration field', [{ ...requirements[0], priority: 'high' }], /Unknown field requirements\[0\]\.priority/],
+];
+
+for (const [name, invalid, expected] of invalidRequirements) {
+  test(`rejects ${name}`, async (t) => {
+    const cwd = await project(t, {
+      'proofpatch.config.json': { requirements: invalid, checks: [{ name: 'Tests', command: 'npm test' }] },
+    });
+    await assert.rejects(loadConfig(cwd), expected);
+  });
+}
+
+const invalidReferences = [
+  ['null reference list', null, /must be an array of requirement IDs/],
+  ['non-array reference list', 'signup', /must be an array of requirement IDs/],
+  ['empty reference', [''], /must be a lowercase slug/],
+  ['non-string reference', [null], /must be a lowercase slug/],
+  ['malformed reference', ['SignUp'], /must be a lowercase slug/],
+  ['unknown reference', ['unknown'], /refers to undeclared requirement "unknown"/],
+  ['duplicate references', ['signup', 'signup'], /duplicate requirement ID "signup"/],
+];
+
+for (const [name, references, expected] of invalidReferences) {
+  for (const kind of ['command', 'scenario']) {
+    test(`rejects ${name} in a ${kind}`, async (t) => {
+      const config = kind === 'command'
+        ? { requirements, checks: [{ name: 'Tests', command: 'npm test', requirements: references }] }
+        : { requirements, checks: [], browser: { ...browser, scenarios: [{ name: 'Homepage', requirements: references }] } };
+      const cwd = await project(t, { 'proofpatch.config.json': config });
+      await assert.rejects(loadConfig(cwd), expected);
+    });
+  }
+}
+
+test('references cannot be used without a declaration', async (t) => {
+  const cwd = await project(t, {
+    'proofpatch.config.json': { checks: [{ name: 'Tests', command: 'npm test', requirements: ['signup'] }] },
+  });
+  await assert.rejects(loadConfig(cwd), /refers to undeclared requirement "signup"/);
+});
+
+test('an empty requirements list does not make an empty plan valid', async (t) => {
+  const cwd = await project(t, { 'proofpatch.config.json': { requirements: [], checks: [] } });
+  await assert.rejects(loadConfig(cwd), /No checks found/);
 });

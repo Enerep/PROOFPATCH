@@ -1,4 +1,7 @@
 {
+  "requirements": [
+    { "id": "add-note", "description": "Users can add a note" }
+  ],
   "checks": [
     { "name": "Note validation", "command": "npm test" }
   ],
@@ -8,6 +11,7 @@
     "scenarios": [
       {
         "name": "Add a note",
+        "requirements": ["add-note"],
         "path": "/",
         "steps": [
           { "action": "fill", "selector": "input[name=note]", "value": "Ship it" },

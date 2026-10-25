@@ -4,18 +4,37 @@
   "title": "ProofPatch configuration",
   "type": "object",
   "additionalProperties": false,
-  "$comment": "The CLI also validates parsed URL hosts and unique names after trimming whitespace. Script discovery when checks is omitted depends on the local package.json.",
+  "$comment": "The CLI also validates parsed URL hosts, unique names after trimming whitespace, unique requirement IDs, and references to declared requirement IDs. Script discovery when checks is omitted depends on the local package.json.",
   "allOf": [
     {
       "if": { "required": ["checks"], "properties": { "checks": { "maxItems": 0 } } },
-      "then": { "required": ["browser"], "properties": { "browser": { "type": "object" } } }
+      "then": {
+        "anyOf": [
+          { "required": ["browser"], "properties": { "browser": { "type": "object" } } },
+          { "required": ["requirements"], "properties": { "requirements": { "minItems": 1 } } }
+        ]
+      }
     }
   ],
   "properties": {
     "$schema": { "$ref": "#/$defs/nonEmptyString" },
+    "requirements": {
+      "type": "array",
+      "default": [],
+      "description": "Requirements to track. IDs must be unique. Descriptions are trimmed by the CLI.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "description"],
+        "properties": {
+          "id": { "$ref": "#/$defs/requirementId" },
+          "description": { "$ref": "#/$defs/nonEmptyString" }
+        }
+      }
+    },
     "checks": {
       "type": "array",
-      "description": "Commands to run. Names must be unique after trimming whitespace. An empty array requires browser scenarios.",
+      "description": "Commands to run. Names must be unique after trimming whitespace. An empty array requires browser scenarios or declared requirements.",
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -23,7 +42,8 @@
         "properties": {
           "name": { "$ref": "#/$defs/nonEmptyString" },
           "command": { "$ref": "#/$defs/nonEmptyString" },
-          "timeoutMs": { "$ref": "#/$defs/timeout", "default": 120000 }
+          "timeoutMs": { "$ref": "#/$defs/timeout", "default": 120000 },
+          "requirements": { "$ref": "#/$defs/requirementReferences" }
         }
       }
     },
@@ -50,7 +70,8 @@
                 "properties": {
                   "name": { "$ref": "#/$defs/nonEmptyString" },
                   "path": { "type": "string", "pattern": "^/(?!/)[^\\\\\\u0000-\\u001f\\u007f]*$", "default": "/" },
-                  "steps": { "type": "array", "items": { "$ref": "#/$defs/step" }, "default": [] }
+                  "steps": { "type": "array", "items": { "$ref": "#/$defs/step" }, "default": [] },
+                  "requirements": { "$ref": "#/$defs/requirementReferences" }
                 }
               }
             }
@@ -62,6 +83,14 @@
   "$defs": {
     "nonEmptyString": { "type": "string", "pattern": "\\S" },
     "timeout": { "type": "integer", "minimum": 1, "maximum": 3600000 },
+    "requirementId": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$", "not": { "pattern": "\\s" } },
+    "requirementReferences": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/requirementId" },
+      "uniqueItems": true,
+      "default": [],
+      "description": "IDs of declared requirements covered by this check or scenario."
+    },
     "step": {
       "oneOf": [
         {

@@ -17,6 +17,9 @@ Use Node.js 22 or newer. Run `npm ci`, `npm run check`, and `npm test` when sett
 - Keep the CLI help, README, configuration schema, and examples consistent with the implementation.
 - Test behavior that matters: failing commands, timeouts, invalid configuration, browser failures, and report contents.
 - A skipped or unavailable check is not a pass. Reports must say what ran and what did not.
+- Preserve the user's acceptance criteria as stable requirement IDs before adding tests. Keep requirement links consistent with the actual behavior each check asserts.
+- Report unverified requirements as gaps. Never delete, weaken, or unlink a requirement just to obtain a passing result.
+- Requirement links record evidence; they do not judge whether the assertions adequately cover the requested behavior.
 - Never claim that a passing report proves a project is bug-free.
 - Clean up child processes and browser sessions, including on failure or interruption.
 - Keep generated reports, screenshots, logs, credentials, and personal information out of commits. Review any evidence before sharing it publicly.

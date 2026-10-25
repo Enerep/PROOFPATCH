@@ -6,6 +6,7 @@ import { loadConfig } from '../src/config.js';
 import { runCommand } from '../src/runner.js';
 import { runBrowserChecks } from '../src/browser.js';
 import { gitContext, summarize, writeReports, version } from '../src/report.js';
+import { assessRequirements, summarizeRequirements } from '../src/requirements.js';
 
 const help = `ProofPatch ${version}
 
@@ -19,8 +20,22 @@ verify   Run checks and save reports in .proofpatch/<run-id>/.
 init     Create proofpatch.config.json from existing package scripts.
 --json   Print the complete report as JSON; send progress to stderr.
 
-Exit codes: 0 passed, 1 checks failed, 2 setup/configuration error, 130 interrupted.
+Declared requirements need linked passing checks; uncovered requirements are unverified.
+Exit codes: 0 passed, 1 failed/incomplete, 2 setup/configuration error, 130 interrupted.
 `;
+
+function browserResultsWithRequirements(browser, results, interrupted) {
+  const scenarios = new Map(browser.scenarios.map((scenario) => [`Browser: ${scenario.name}`, scenario]));
+  const received = new Set(results.map((result) => result.name));
+  return [
+    ...results.map((result) => ({ ...result, requirements: scenarios.get(result.name)?.requirements ?? [] })),
+    ...[...scenarios].filter(([name]) => !received.has(name)).map(([name, scenario]) => ({
+      name, kind: 'browser', status: 'skipped', durationMs: 0,
+      requirements: scenario.requirements,
+      reason: interrupted ? 'Run interrupted.' : 'Scenario did not run. See browser setup failure.',
+    })),
+  ];
+}
 
 function parseArgs(args) {
   if (args.length === 1 && ['--help', '-h'].includes(args[0])) return { command: 'help' };
@@ -76,19 +91,19 @@ async function verify({ cwd, json }) {
     for (let index = 0; index < config.checks.length; index++) {
       const check = config.checks[index];
       if (controller.signal.aborted) {
-        checks.push({ name: check.name, kind: 'command', status: 'skipped', durationMs: 0, reason: 'Run interrupted.' });
+        checks.push({ name: check.name, kind: 'command', status: 'skipped', durationMs: 0, reason: 'Run interrupted.', requirements: check.requirements });
         continue;
       }
       progress(`RUN   ${check.name}`);
       const result = await runCommand(check, { cwd, runDir, index, signal: controller.signal });
-      checks.push(result);
+      checks.push({ ...result, requirements: check.requirements });
       progress(`${result.status === 'passed' ? 'PASS' : 'FAIL'}  ${result.name} (${result.durationMs} ms)${result.reason ? ` — ${result.reason}` : ''}`);
     }
     if (config.browser) {
-      if (controller.signal.aborted) checks.push({ name: 'Browser scenarios', kind: 'browser', status: 'skipped', reason: 'Run interrupted.', durationMs: 0 });
+      if (controller.signal.aborted) checks.push(...browserResultsWithRequirements(config.browser, [], true));
       else {
         const browserChecks = await runBrowserChecks(config.browser, { cwd, runDir, signal: controller.signal, onProgress: progress });
-        checks.push(...browserChecks);
+        checks.push(...browserResultsWithRequirements(config.browser, browserChecks, controller.signal.aborted));
         for (const result of browserChecks) {
           progress(`${result.status === 'passed' ? 'PASS' : 'FAIL'}  ${result.name} (${result.durationMs} ms)${result.reason ? ` — ${result.reason}` : ''}`);
         }
@@ -96,10 +111,12 @@ async function verify({ cwd, json }) {
     } else {
       checks.push({ name: 'Browser scenarios', kind: 'browser', status: 'skipped', reason: 'No browser scenarios configured.', durationMs: 0 });
     }
-    const summary = summarize(checks);
+    const requirements = assessRequirements(config.requirements, checks);
+    const requirementSummary = summarizeRequirements(requirements);
+    const summary = summarize(checks, requirements);
     if (controller.signal.aborted) summary.status = 'failed';
     const report = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       tool: { name: 'proofpatch', version },
       startedAt,
       durationMs: Math.round(performance.now() - started),
@@ -109,12 +126,22 @@ async function verify({ cwd, json }) {
       interrupted: controller.signal.aborted,
       summary,
       checks,
+      requirements,
+      requirementSummary,
       reportDirectory: relative(cwd, runDir).split('\\').join('/'),
     };
     await writeReports(report, runDir);
     if (json) console.log(JSON.stringify(report, null, 2));
     else {
       for (const check of checks.filter((item) => item.status === 'skipped')) progress(`SKIP  ${check.name} — ${check.reason}`);
+      if (requirements.length) {
+        progress('\nRequirements:');
+        for (const requirement of requirements) {
+          const label = { passed: 'PASS', failed: 'FAIL', unverified: 'UNVERIFIED' }[requirement.status];
+          progress(`${label}  ${requirement.id} — ${requirement.description}`);
+        }
+        progress(`${requirementSummary.passed} passed, ${requirementSummary.failed} failed, ${requirementSummary.unverified} unverified.`);
+      }
       progress(`\n${summary.status.toUpperCase()}: ${summary.passed} passed, ${summary.failed} failed, ${summary.skipped} skipped.`);
       progress(`Report: ${join(report.reportDirectory, 'report.md')}`);
       progress('Only the checks listed above were verified.');

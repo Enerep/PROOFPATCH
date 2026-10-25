@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { summarizeRequirements } from './requirements.js';
 
 const execute = promisify(execFile);
 const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
@@ -21,14 +22,51 @@ export async function gitContext(cwd) {
   }
 }
 
-export function summarize(checks) {
+export function summarize(checks, requirements = []) {
   const summary = { passed: 0, failed: 0, skipped: 0 };
   for (const check of checks) summary[check.status]++;
-  return { ...summary, status: summary.failed > 0 || summary.passed === 0 ? 'failed' : 'passed' };
+  const requirementSummary = summarizeRequirements(requirements);
+  let status;
+  if (summary.failed > 0 || requirementSummary.failed > 0) status = 'failed';
+  else if (requirementSummary.unverified > 0) status = 'incomplete';
+  else status = summary.passed === 0 ? 'failed' : 'passed';
+  return { ...summary, status };
 }
 
 function cell(value) {
   return String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('|', '\\|').replaceAll('\r', '').replaceAll('\n', '<br>');
+}
+
+function requirementCell(value) {
+  return cell(String(value ?? '').replaceAll('\\', '\\\\').replace(/[\[\]`*_]/g, '\\$&'));
+}
+
+function artifactLink(path) {
+  const target = String(path).split('/').map(encodeURIComponent).join('/').replaceAll('(', '%28').replaceAll(')', '%29');
+  return `[${requirementCell(path)}](${target})`;
+}
+
+function requirementsMarkdown(report) {
+  if (!report.requirements?.length) return [];
+  const summary = report.requirementSummary ?? summarizeRequirements(report.requirements);
+  return [
+    '## Requirements',
+    '',
+    `${summary.passed} passed, ${summary.failed} failed, ${summary.unverified} unverified.`,
+    '',
+    'Requirement associations are supplied by the plan author. A passed requirement means its linked checks passed; this does not prove those checks are adequate or cover the requirement.',
+    '',
+    '| ID | Requirement | Result | Linked checks | Evidence |',
+    '| --- | --- | --- | --- | --- |',
+    ...report.requirements.map((requirement) => {
+      const linkedChecks = requirement.checks.map((check) => `${requirementCell(check.name)} (${requirementCell(check.status)})`).join('<br>') || 'No linked checks';
+      const evidence = requirement.checks.filter((check) => check.artifacts?.length).map((check) => `${requirementCell(check.name)}: ${check.artifacts.map(artifactLink).join(', ')}`).join('<br>');
+      return `| ${requirementCell(requirement.id)} | ${requirementCell(requirement.description)} | ${requirementCell(requirement.status)} — ${requirementCell(requirement.reason)} | ${linkedChecks} | ${evidence} |`;
+    }),
+    '',
+    '## Checks',
+    '',
+  ];
 }
 
 export function toMarkdown(report) {
@@ -43,6 +81,7 @@ export function toMarkdown(report) {
     `Configuration: ${cell(report.configSource)}`,
     ...(report.git ? [`Commit: ${report.git.commit}`, `Working tree: ${report.git.dirty ? 'uncommitted changes' : 'clean'}`] : ['Git context: unavailable']),
     '',
+    ...requirementsMarkdown(report),
     '| Check | Result | Duration | Evidence / reason |',
     '| --- | --- | --- | --- |',
     ...report.checks.map((check) => `| ${cell(check.name)} | ${check.status} | ${check.durationMs ?? 0} ms | ${cell(check.reason ?? check.command ?? 'Browser scenario completed.')} |`),

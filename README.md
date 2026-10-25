@@ -48,6 +48,12 @@ Only the checks listed above were verified.
 
 Each run saves `report.md`, `report.json`, command logs, and browser screenshots when configured. Failed checks make the command exit with a nonzero status, which also works in CI.
 
+## Track what was requested
+
+Add the original acceptance criteria to `requirements` in your configuration, then link command checks or browser scenarios to their IDs. Reports show each requirement as `passed`, `failed`, or `unverified`. If all checks pass but a requirement has no evidence, the result is `INCOMPLETE` and the command exits with code `1`.
+
+Use your existing coding assistant to prepare that plan and run `proofpatch verify`. ProofPatch does not contact an AI model. See [working with coding assistants](docs/assistants.md) for a short prompt and an example with an uncovered requirement.
+
 ## Add browser scenarios
 
 Install Chromium once:
@@ -86,7 +92,7 @@ The demo tests a small notes app, including typing a note and clicking Add. See 
 
 ## Keep the result in perspective
 
-A pass means the configured checks passed during this run. Test quality and scenario coverage determine what that tells you. Missing checks appear as skipped; an empty project cannot pass. ProofPatch does not generate tests, audit security, or prove that an application is bug-free.
+A pass means the configured checks passed during this run and any declared requirements have passing linked evidence. Test quality and scenario coverage determine what that tells you; linking a check does not establish that it adequately tests a requirement. Missing checks appear as skipped; an empty project cannot pass. ProofPatch does not generate tests, audit security, or prove that an application is bug-free.
 
 Commands run with your local permissions, and browser scenarios can interact with the configured application. Run configurations you trust. Evidence stays in `.proofpatch/`; review logs and screenshots before sharing them.
 
