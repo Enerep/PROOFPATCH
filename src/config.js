@@ -111,7 +111,18 @@ function validateChecks(checks, requirementIds) {
   return result;
 }
 
-function validateStep(step, location) {
+function observationWindow(value, browserTimeoutMs, location) {
+  const duration = value === undefined ? 0 : value;
+  if (!Number.isInteger(duration) || duration < 0 || duration > MAX_TIMEOUT_MS) {
+    throw new Error(`${location} must be an integer between 0 and ${MAX_TIMEOUT_MS} milliseconds.`);
+  }
+  if (duration >= browserTimeoutMs) {
+    throw new Error(`${location} must be strictly less than browser.timeoutMs (${browserTimeoutMs} milliseconds).`);
+  }
+  return duration;
+}
+
+function validateStep(step, location, browserTimeoutMs) {
   object(step, location);
   const action = string(step.action, `${location}.action`);
   switch (action) {
@@ -132,8 +143,27 @@ function validateStep(step, location) {
       if (step.selector !== undefined) result.selector = string(step.selector, `${location}.selector`);
       return result;
     }
+    case 'expectCount': {
+      fields(step, ['action', 'selector', 'count', 'forMs'], location);
+      if (!Number.isSafeInteger(step.count) || step.count < 0) {
+        throw new Error(`${location}.count must be a non-negative safe integer (at most ${Number.MAX_SAFE_INTEGER}).`);
+      }
+      return {
+        action,
+        selector: string(step.selector, `${location}.selector`),
+        count: step.count,
+        forMs: observationWindow(step.forMs, browserTimeoutMs, `${location}.forMs`),
+      };
+    }
+    case 'expectHidden':
+      fields(step, ['action', 'selector', 'forMs'], location);
+      return {
+        action,
+        selector: string(step.selector, `${location}.selector`),
+        forMs: observationWindow(step.forMs, browserTimeoutMs, `${location}.forMs`),
+      };
     default:
-      throw new Error(`${location}.action must be click, fill, expectVisible, or expectText.`);
+      throw new Error(`${location}.action must be click, fill, expectVisible, expectText, expectCount, or expectHidden.`);
   }
 }
 
@@ -163,6 +193,7 @@ function validateBrowser(browser, requirementIds) {
   if (!Array.isArray(browser.scenarios) || browser.scenarios.length === 0) {
     throw new Error('browser.scenarios must contain at least one scenario.');
   }
+  const timeoutMs = timeout(browser.timeoutMs, 15_000, 'browser.timeoutMs');
   const scenarios = browser.scenarios.map((scenario, index) => {
     const location = `browser.scenarios[${index}]`;
     object(scenario, location);
@@ -179,7 +210,7 @@ function validateBrowser(browser, requirementIds) {
     return {
       name: string(scenario.name, `${location}.name`).trim(),
       path: scenarioPath,
-      steps: steps.map((step, stepIndex) => validateStep(step, `${location}.steps[${stepIndex}]`)),
+      steps: steps.map((step, stepIndex) => validateStep(step, `${location}.steps[${stepIndex}]`, timeoutMs)),
       requirements: validateRequirementReferences(scenario.requirements, requirementIds, `${location}.requirements`),
     };
   });
@@ -187,7 +218,7 @@ function validateBrowser(browser, requirementIds) {
   const result = {
     baseUrl: baseUrl.href,
     startupTimeoutMs: timeout(browser.startupTimeoutMs, 30_000, 'browser.startupTimeoutMs'),
-    timeoutMs: timeout(browser.timeoutMs, 15_000, 'browser.timeoutMs'),
+    timeoutMs,
     scenarios,
   };
   if (browser.startCommand !== undefined) result.startCommand = string(browser.startCommand, 'browser.startCommand');

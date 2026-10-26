@@ -135,7 +135,41 @@ function scenarioUrl(baseUrl, scenarioPath) {
   return url.href;
 }
 
-async function runStep(page, step, timeout) {
+async function expectStable({ observe, matches, forMs, timeout, signal, failure }) {
+  const deadline = performance.now() + timeout;
+  const timedOut = Symbol('observation timed out');
+  let matchingSince;
+  let actual;
+  while (performance.now() < deadline) {
+    throwIfAborted(signal);
+    let timer;
+    let observed;
+    try {
+      observed = await untilAborted(Promise.race([
+        observe(),
+        new Promise((resolve) => {
+          timer = setTimeout(() => resolve(timedOut), Math.max(0, deadline - performance.now()));
+        }),
+      ]), signal);
+    } finally {
+      clearTimeout(timer);
+    }
+    if (observed === timedOut) break;
+    actual = observed;
+    const now = performance.now();
+    if (now > deadline) break;
+    if (matches(actual)) {
+      matchingSince ??= now;
+      if (now - matchingSince >= forMs) return;
+    } else {
+      matchingSince = undefined;
+    }
+    await delay(Math.min(25, Math.max(0, deadline - performance.now())), undefined, { signal });
+  }
+  throw new Error(failure(actual));
+}
+
+async function runStep(page, step, timeout, signal) {
   switch (step.action) {
     case 'click':
       await page.locator(step.selector).click({ timeout });
@@ -146,6 +180,26 @@ async function runStep(page, step, timeout) {
     case 'expectVisible':
       await page.locator(step.selector).waitFor({ state: 'visible', timeout });
       break;
+    case 'expectCount': {
+      const locator = page.locator(step.selector);
+      const forMs = step.forMs ?? 0;
+      await expectStable({
+        observe: () => locator.count(), matches: (count) => count === step.count,
+        forMs, timeout, signal,
+        failure: (actual) => `Expected ${step.count} elements matching ${JSON.stringify(step.selector)} for ${forMs}ms within ${timeout}ms; found ${actual ?? 'an unknown count'}.`,
+      });
+      break;
+    }
+    case 'expectHidden': {
+      const locator = page.locator(step.selector);
+      const forMs = step.forMs ?? 0;
+      await expectStable({
+        observe: () => locator.isHidden(), matches: (hidden) => hidden,
+        forMs, timeout, signal,
+        failure: (actual) => `Expected ${JSON.stringify(step.selector)} to be hidden or detached for ${forMs}ms within ${timeout}ms; last state was ${actual === undefined ? 'unknown' : actual ? 'hidden or detached' : 'visible'}.`,
+      });
+      break;
+    }
     case 'expectText': {
       const scope = step.selector ? page.locator(step.selector) : page.locator('body');
       const deadline = Date.now() + timeout;
@@ -246,6 +300,8 @@ async function runBrowserChecks(config, { cwd, runDir, signal, onProgress = () =
           action: step.action,
           ...(step.selector !== undefined ? { selector: step.selector } : {}),
           ...(step.text !== undefined ? { text: step.text } : {}),
+          ...(step.count !== undefined ? { count: step.count } : {}),
+          ...(['expectCount', 'expectHidden'].includes(step.action) ? { forMs: step.forMs ?? 0 } : {}),
           ...(step.action === 'fill' ? { value: '[redacted]' } : {}),
         })),
         completedSteps: 0, pageErrors: [], consoleErrors: [], requestFailures: [], httpErrors: [],
@@ -273,7 +329,7 @@ async function runBrowserChecks(config, { cwd, runDir, signal, onProgress = () =
         }
         for (const step of scenario.steps) {
           throwIfAborted(signal);
-          await runStep(page, step, config.timeoutMs);
+          await runStep(page, step, config.timeoutMs, signal);
           details.completedSteps++;
         }
         if (new URL(page.url()).origin !== new URL(config.baseUrl).origin) {

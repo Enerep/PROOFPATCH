@@ -46,6 +46,13 @@ function artifactLink(path) {
   return `[${requirementCell(path)}](${target})`;
 }
 
+function expectedStepResult(step) {
+  const observation = step.forMs > 0 ? ` for ${step.forMs} ms` : '';
+  if (step.action === 'expectCount') return `${step.count} matching elements${observation}`;
+  if (step.action === 'expectHidden') return `hidden or absent${observation}`;
+  return step.text ?? '';
+}
+
 function requirementsMarkdown(report) {
   if (!report.requirements?.length) return [];
   const summary = report.requirementSummary ?? summarizeRequirements(report.requirements);
@@ -96,9 +103,9 @@ export function toMarkdown(report) {
   }
   for (const check of report.checks) {
     if (check.details?.steps?.length) {
-      lines.push('', `## ${cell(check.name)} — steps`, '', `URL: ${cell(check.details.url)}`, '', '| Step | Action | Target | Expected text | Result |', '| --- | --- | --- | --- | --- |');
+      lines.push('', `## ${cell(check.name)} — steps`, '', `URL: ${cell(check.details.url)}`, '', '| Step | Action | Target | Expected result | Result |', '| --- | --- | --- | --- | --- |');
       for (const [index, step] of check.details.steps.entries()) {
-        lines.push(`| ${index + 1} | ${cell(step.action)} | ${cell(step.selector ?? 'page body')} | ${cell(step.text ?? '')} | ${index < check.details.completedSteps ? 'completed' : 'not completed'} |`);
+        lines.push(`| ${index + 1} | ${cell(step.action)} | ${cell(step.selector ?? 'page body')} | ${cell(expectedStepResult(step))} | ${index < check.details.completedSteps ? 'completed' : 'not completed'} |`);
       }
     }
     if (check.details && check.status === 'failed') {
