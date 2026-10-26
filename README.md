@@ -88,7 +88,7 @@ To try the included demo:
 npm run demo
 ```
 
-The demo tests a small notes app, including typing a note and clicking Add. See [configuration](docs/configuration.md) for more examples and options.
+The demo tests adding a note and rejecting blank notes. Run `npm run demo:broken` to check the same criteria against an intentionally buggy version and see a failure. Follow the [bug walkthrough](docs/bug-demo.md) to inspect the evidence and fix it. See [configuration](docs/configuration.md) for all options.
 
 ## Keep the result in perspective
 
