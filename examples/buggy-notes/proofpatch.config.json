@@ -1,0 +1,38 @@
+{
+  "requirements": [
+    { "id": "add-note", "description": "Users can add a note" },
+    { "id": "reject-blank", "description": "Whitespace-only notes are not added" }
+  ],
+  "checks": [
+    { "name": "Note validation", "command": "npm test" }
+  ],
+  "browser": {
+    "baseUrl": "http://127.0.0.1:4174",
+    "startCommand": "node server.js",
+    "timeoutMs": 2000,
+    "scenarios": [
+      {
+        "name": "Add a note",
+        "requirements": ["add-note"],
+        "path": "/",
+        "steps": [
+          { "action": "fill", "selector": "input[name=note]", "value": "Ship it" },
+          { "action": "click", "selector": "button[type=submit]" },
+          { "action": "expectText", "selector": "#notes", "text": "Ship it" },
+          { "action": "expectVisible", "selector": "#notes li" },
+          { "action": "expectCount", "selector": "#notes li", "count": 1, "forMs": 0 }
+        ]
+      },
+      {
+        "name": "Reject a blank note",
+        "requirements": ["reject-blank"],
+        "path": "/",
+        "steps": [
+          { "action": "fill", "selector": "input[name=note]", "value": "   " },
+          { "action": "click", "selector": "button[type=submit]" },
+          { "action": "expectCount", "selector": "#notes li", "count": 0, "forMs": 250 }
+        ]
+      }
+    ]
+  }
+}

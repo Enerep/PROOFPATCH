@@ -1,0 +1,8 @@
+{
+  "name": "proofpatch-buggy-notes-demo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node ../demo/checks.js"
+  }
+}
