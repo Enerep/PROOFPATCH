@@ -306,3 +306,127 @@ test('an empty requirements list does not make an empty plan valid', async (t) =
   const cwd = await project(t, { 'proofpatch.config.json': { requirements: [], checks: [] } });
   await assert.rejects(loadConfig(cwd), /No checks found/);
 });
+
+async function browserStepsProject(t, steps, settings = {}) {
+  return project(t, {
+    'proofpatch.config.json': {
+      checks: [],
+      browser: { ...browser, ...settings, scenarios: [{ name: 'Browser checks', steps }] },
+    },
+  });
+}
+
+test('count assertions accept zero, positive counts, and the maximum safe integer', async (t) => {
+  const steps = [0, 3, Number.MAX_SAFE_INTEGER].map((count) => ({ action: 'expectCount', selector: '.item', count }));
+  const cwd = await browserStepsProject(t, steps);
+  const config = await loadConfig(cwd);
+  assert.deepEqual(config.browser.scenarios[0].steps, steps.map((step) => ({ ...step, forMs: 0 })));
+});
+
+test('hidden assertions default their observation window to zero', async (t) => {
+  const cwd = await browserStepsProject(t, [{ action: 'expectHidden', selector: '.error' }]);
+  assert.deepEqual((await loadConfig(cwd)).browser.scenarios[0].steps, [
+    { action: 'expectHidden', selector: '.error', forMs: 0 },
+  ]);
+});
+
+test('negative assertions preserve a configured observation window and requirement links', async (t) => {
+  const steps = [
+    { action: 'expectCount', selector: '.duplicate', count: 0, forMs: 150 },
+    { action: 'expectHidden', selector: '.error', forMs: 150 },
+  ];
+  const cwd = await project(t, {
+    'proofpatch.config.json': {
+      requirements: [{ id: 'no-duplicates', description: 'Submitting creates no duplicates.' }],
+      checks: [],
+      browser: { ...browser, timeoutMs: 200, scenarios: [{ name: 'No duplicates', steps, requirements: ['no-duplicates'] }] },
+    },
+  });
+  const scenario = (await loadConfig(cwd)).browser.scenarios[0];
+  assert.deepEqual(scenario.steps, steps);
+  assert.deepEqual(scenario.requirements, ['no-duplicates']);
+});
+
+test('observation windows use the effective browser timeout including its default', async (t) => {
+  const step = { action: 'expectHidden', selector: '.error', forMs: 14_999 };
+  const defaultCwd = await browserStepsProject(t, [step]);
+  assert.equal((await loadConfig(defaultCwd)).browser.scenarios[0].steps[0].forMs, 14_999);
+  const largerCwd = await browserStepsProject(t, [{ ...step, forMs: 19_999 }], { timeoutMs: 20_000 });
+  assert.equal((await loadConfig(largerCwd)).browser.scenarios[0].steps[0].forMs, 19_999);
+});
+
+test('zero observation windows work with the smallest browser timeout', async (t) => {
+  const cwd = await browserStepsProject(t, [
+    { action: 'expectHidden', selector: '.error', forMs: 0 },
+    { action: 'expectCount', selector: '.error', count: 0 },
+  ], { timeoutMs: 1 });
+  assert.deepEqual((await loadConfig(cwd)).browser.scenarios[0].steps.map(({ forMs }) => forMs), [0, 0]);
+});
+
+test('observation windows can approach the largest supported timeout', async (t) => {
+  const cwd = await browserStepsProject(t, [
+    { action: 'expectHidden', selector: '.error', forMs: 3_599_999 },
+  ], { timeoutMs: 3_600_000 });
+  assert.equal((await loadConfig(cwd)).browser.scenarios[0].steps[0].forMs, 3_599_999);
+});
+
+for (const [name, count] of [
+  ['missing', undefined], ['negative', -1], ['fractional', 1.5], ['null', null],
+  ['unsafe', Number.MAX_SAFE_INTEGER + 1], ['string', '0'], ['boolean', false],
+]) {
+  test(`rejects a ${name} expected count`, async (t) => {
+    const cwd = await browserStepsProject(t, [{ action: 'expectCount', selector: '.item', count }]);
+    await assert.rejects(loadConfig(cwd), /steps\[0\]\.count must be a non-negative safe integer/);
+  });
+}
+
+for (const action of ['expectCount', 'expectHidden']) {
+  for (const [name, forMs] of [
+    ['negative', -1], ['fractional', 0.5], ['null', null], ['string', '0'],
+    ['boolean', false], ['oversized', 3_600_001],
+  ]) {
+    test(`rejects a ${name} observation window in ${action}`, async (t) => {
+      const step = action === 'expectCount'
+        ? { action, selector: '.error', count: 0, forMs }
+        : { action, selector: '.error', forMs };
+      const cwd = await browserStepsProject(t, [step]);
+      await assert.rejects(loadConfig(cwd), /forMs must be an integer between 0 and 3600000/);
+    });
+  }
+
+  for (const [forMs, timeoutMs] of [[15_000, undefined], [100, 100], [101, 100], [3_600_000, 3_600_000]]) {
+    test(`${action} rejects window ${forMs} when browser timeout is ${timeoutMs ?? 'default'}`, async (t) => {
+      const step = action === 'expectCount'
+        ? { action, selector: '.error', count: 0, forMs }
+        : { action, selector: '.error', forMs };
+      const cwd = await browserStepsProject(t, [step], timeoutMs === undefined ? {} : { timeoutMs });
+      await assert.rejects(loadConfig(cwd), /forMs must be strictly less than browser\.timeoutMs/);
+    });
+  }
+
+  test(`${action} requires a non-empty selector`, async (t) => {
+    const step = action === 'expectCount' ? { action, count: 0, selector: ' ' } : { action };
+    const cwd = await browserStepsProject(t, [step]);
+    await assert.rejects(loadConfig(cwd), /selector must be a non-empty string/);
+  });
+
+  test(`${action} rejects unknown fields`, async (t) => {
+    const step = action === 'expectCount'
+      ? { action, selector: '.error', count: 0, duration: 100 }
+      : { action, selector: '.error', count: 0 };
+    const cwd = await browserStepsProject(t, [step]);
+    await assert.rejects(loadConfig(cwd), /Unknown field.*steps\[0\]/);
+  });
+}
+
+for (const step of [
+  { action: 'click', selector: 'button' },
+  { action: 'fill', selector: 'input', value: 'Hello' },
+  { action: 'expectVisible', selector: '.success' },
+  { action: 'expectText', text: 'Success' },
+]) {
+  test(`existing ${step.action} steps still reject observation windows`, async (t) => {
+    const cwd = await browserStepsProject(t, [{ ...step, forMs: 0 }]);
+    await assert.rejects(loadConfig(cwd), /Unknown field.*forMs/);
+  });
+}

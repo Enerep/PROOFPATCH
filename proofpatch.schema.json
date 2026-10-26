@@ -4,7 +4,7 @@
   "title": "ProofPatch configuration",
   "type": "object",
   "additionalProperties": false,
-  "$comment": "The CLI also validates parsed URL hosts, unique names after trimming whitespace, unique requirement IDs, and references to declared requirement IDs. Script discovery when checks is omitted depends on the local package.json.",
+  "$comment": "The CLI also validates parsed URL hosts, unique names after trimming whitespace, unique requirement IDs, and references to declared requirement IDs. It requires step forMs to be strictly less than the effective browser.timeoutMs. Script discovery when checks is omitted depends on the local package.json.",
   "allOf": [
     {
       "if": { "required": ["checks"], "properties": { "checks": { "maxItems": 0 } } },
@@ -83,6 +83,13 @@
   "$defs": {
     "nonEmptyString": { "type": "string", "pattern": "\\S" },
     "timeout": { "type": "integer", "minimum": 1, "maximum": 3600000 },
+    "observationWindow": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3600000,
+      "default": 0,
+      "description": "The expectation must be observed matching across this duration within the action timeout. Must be strictly less than browser.timeoutMs."
+    },
     "requirementId": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$", "not": { "pattern": "\\s" } },
     "requirementReferences": {
       "type": "array",
@@ -120,6 +127,27 @@
             "action": { "const": "expectText" },
             "text": { "$ref": "#/$defs/nonEmptyString" },
             "selector": { "$ref": "#/$defs/nonEmptyString" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["action", "selector", "count"],
+          "properties": {
+            "action": { "const": "expectCount" },
+            "selector": { "$ref": "#/$defs/nonEmptyString" },
+            "count": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+            "forMs": { "$ref": "#/$defs/observationWindow" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["action", "selector"],
+          "properties": {
+            "action": { "const": "expectHidden" },
+            "selector": { "$ref": "#/$defs/nonEmptyString" },
+            "forMs": { "$ref": "#/$defs/observationWindow" }
           }
         }
       ]

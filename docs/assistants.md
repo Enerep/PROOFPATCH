@@ -62,6 +62,10 @@ The server command and selectors match the included notes demo; adapt them for a
 
 The overall result is `INCOMPLETE`, and the process exits with code `1`. Add an executable check for blank-note rejection before claiming that requirement is verified. A small unit test for text normalization can support that work, but does not cover the complete user interaction on its own.
 
+The [bug walkthrough](bug-demo.md) supplies a complete plan for both behaviors. Its blank-note scenario fills the actual input with spaces, submits it, and uses `expectCount` to assert that no note was created. The same plan fails against a buggy app and passes against the fixed app. This is a supplied example plan, not an autonomous assistant experiment; use your existing assistant to prepare a plan from your own criteria before writing tests.
+
+For negative assertions, use `expectCount` to check how many DOM nodes exist or `expectHidden` to check visibility. Both accept `forMs` for a finite observation window. For asynchronous work, first wait for a meaningful completion signal. An element being absent briefly does not show that the operation finished correctly. See [browser actions](configuration.md#browser-actions) for the exact semantics.
+
 Each requirement is `passed` when all its linked results pass, `failed` when any linked result fails, and `unverified` when results are missing or skipped. Failed checks produce `FAILED`; otherwise, any unverified requirement produces `INCOMPLETE`. `PASSED` exits with `0`; both `FAILED` and `INCOMPLETE` exit with `1`. Without declared requirements, the existing check-based behavior applies.
 
 These links are an explicit coverage plan. ProofPatch cannot tell whether the assistant copied all the user's criteria or wrote adequate assertions. Review the plan and evidence along with the code.

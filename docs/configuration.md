@@ -61,8 +61,26 @@ If `checks` is omitted, package scripts are discovered. To run only browser scen
 | `click` | `selector` | Click a matching element. |
 | `expectText` | `text`; optional `selector` | Wait for rendered text, within the selector or page body. |
 | `expectVisible` | `selector` | Wait for a visible element. |
+| `expectCount` | `selector`, `count`; optional `forMs` | Wait for exactly `count` matching DOM nodes, including hidden nodes. |
+| `expectHidden` | `selector`; optional `forMs` | Wait for the element to be hidden or detached. |
 
 Selectors use Playwright locator syntax. Each scenario gets a fresh browser context. Browser scenarios run in headless Chromium; every action and navigation uses `timeoutMs` (default 15 seconds). `startupTimeoutMs` defaults to 30 seconds. Each timeout must be an integer from 1 to 3,600,000 milliseconds.
+
+`count` must be a nonnegative integer. `expectHidden` uses Playwright's visibility rules: detached elements, an empty bounding box, and `visibility: hidden` count as hidden; `opacity: 0` alone does not. Use `expectCount` with `count: 0` when no matching DOM node should exist.
+
+For `expectCount` and `expectHidden`, `forMs` is an optional observation window in milliseconds. It defaults to `0` and must be a nonnegative integer strictly less than `browser.timeoutMs`. The condition must be observed matching across that interval within the action timeout. ProofPatch polls roughly every 25 milliseconds; a detected mismatch restarts observation while the original action deadline still applies. Brief changes entirely between polls can go unseen.
+
+For example, this checks that submitting whitespace creates no note:
+
+```json
+[
+  { "action": "fill", "selector": "input[name=note]", "value": "   " },
+  { "action": "click", "selector": "button[type=submit]" },
+  { "action": "expectCount", "selector": "#notes li", "count": 0, "forMs": 250 }
+]
+```
+
+For asynchronous behavior, first wait for an actual completion signal, such as the response's rendered result, before checking that an error or unwanted element is absent. A finite `forMs` window can catch delayed changes during that window; it cannot prove that a condition will hold forever. See the [bug walkthrough](bug-demo.md) for a complete example.
 
 Paths must begin with `/` and stay on the configured origin. A scenario with no steps checks navigation and browser errors only. Add explicit assertions to test actual user behavior. For asynchronous flows, include an assertion that waits for the result you care about. Errors occurring after the scenario finishes cannot be detected.
 

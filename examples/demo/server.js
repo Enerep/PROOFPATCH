@@ -1,6 +1,11 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 
+const port = Number(process.env.PROOFPATCH_DEMO_PORT ?? 4173);
+if (!Number.isInteger(port) || port < 1 || port > 65535) {
+  throw new Error('PROOFPATCH_DEMO_PORT must be an integer between 1 and 65535.');
+}
+
 const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>ProofPatch notes demo</title>
 <link rel="icon" href="data:,"></head>
@@ -31,4 +36,4 @@ createServer(async (request, response) => {
     response.writeHead(404);
     response.end('Not found');
   }
-}).listen(4173, '127.0.0.1', () => console.log('Notes demo listening on http://127.0.0.1:4173'));
+}).listen(port, '127.0.0.1', () => console.log(`Notes demo listening on http://127.0.0.1:${port}`));

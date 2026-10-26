@@ -97,3 +97,23 @@ test('Markdown requirements show author-supplied associations, outcomes, and esc
   assert.doesNotMatch(toMarkdown({ ...base, summary: summarize(checks) }), /## Requirements/);
   assert.doesNotMatch(markdown, /coverage\s*[:=]?\s*\d+%|\b\d+%\s*(?:coverage|covered)/i);
 });
+
+test('browser reports show count and hidden expectations with observation windows', () => {
+  const checks = [{
+    name: 'Browser: Reject blank notes', kind: 'browser', status: 'failed', durationMs: 500,
+    reason: 'Expected 0 elements, found 1', details: {
+      url: 'http://127.0.0.1:3000/', completedSteps: 1,
+      steps: [
+        { action: 'expectHidden', selector: '#error', forMs: 100 },
+        { action: 'expectCount', selector: '#notes li', count: 0, forMs: 250 },
+      ],
+    },
+  }];
+  const markdown = toMarkdown({
+    summary: summarize(checks), checks, tool: { version: '0.1.0' }, environment: { node: 'v22', platform: 'linux' },
+    startedAt: '2026-01-01T00:00:00.000Z', durationMs: 500, configSource: 'proofpatch.config.json', git: null,
+  });
+  assert.match(markdown, /expectHidden \| #error \| hidden or absent for 100 ms \| completed/);
+  assert.match(markdown, /expectCount \| #notes li \| 0 matching elements for 250 ms \| not completed/);
+  assert.match(markdown, /Expected 0 elements, found 1/);
+});
