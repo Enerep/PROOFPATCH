@@ -1,0 +1,58 @@
+# Copy to .github/workflows/proofpatch.yml after adding proofpatch.config.json.
+# Update the pinned ProofPatch commit when adopting a newer reviewed version.
+name: ProofPatch
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - name: Check out application
+        uses: actions/checkout@v4
+        with:
+          path: app
+      - name: Check out ProofPatch
+        uses: actions/checkout@v4
+        with:
+          repository: Enerep/PROOFPATCH
+          ref: ff286b1f0cc7d325d43bb9c64402cfc883a5868b
+          path: proofpatch
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Install application dependencies
+        run: npm ci
+      - name: Install ProofPatch
+        run: npm ci --prefix ../proofpatch --ignore-scripts
+      - name: Install Chromium
+        run: node ../proofpatch/node_modules/playwright/cli.js install --with-deps chromium
+      - name: Verify with ProofPatch
+        id: proofpatch
+        run: node ../proofpatch/bin/proofpatch.js verify --github
+      - name: Upload ProofPatch evidence
+        id: evidence
+        if: ${{ always() && steps.proofpatch.outputs.report-directory != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proofpatch-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.proofpatch.outputs.report-directory }}
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+      - name: Link evidence download
+        if: ${{ always() && steps.evidence.outputs.artifact-url != '' }}
+        env:
+          PROOFPATCH_ARTIFACT_URL: ${{ steps.evidence.outputs.artifact-url }}
+        run: |
+          printf '\n[Download ProofPatch evidence](%s)\n' "$PROOFPATCH_ARTIFACT_URL" >> "$GITHUB_STEP_SUMMARY"

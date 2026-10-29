@@ -13,6 +13,7 @@
     "CONTRIBUTING.md",
     "AGENTS.md",
     "proofpatch.schema.json",
+    "examples/github-actions.yml",
     "examples/proofpatch.config.json",
     "examples/demo/package.json",
     "examples/demo/proofpatch.config.json",
