@@ -149,6 +149,24 @@ JSON reports use `schemaVersion: 2`. The `requirements` array records each decla
 | `2` | Invalid arguments, configuration, or a setup/write error. |
 | `130` | Run interrupted; a partial report is saved when possible. |
 
-Keep `.proofpatch/` in your application's `.gitignore`. Upload it as a CI artifact if you need the evidence, after reviewing its contents. Reports are kept per run; remove old run directories when no longer needed.
+For GitHub Actions, opt in to a job summary and step outputs:
+
+```sh
+proofpatch verify --github
+```
+
+The flag requires the runner-provided `GITHUB_STEP_SUMMARY` and `GITHUB_OUTPUT` files. It appends a concise summary of the result, check counts, requirements, and checks, and emits these outputs for the current run:
+
+| Step output | Value |
+| --- | --- |
+| `report-directory` | Absolute path to this run's evidence directory. |
+| `report-json` | Absolute path to this run's `report.json`. |
+| `result` | `passed`, `failed`, or `incomplete`. |
+
+Local evidence files and verification exit codes are unchanged. Missing runner files are a setup error (`2`). When runner metadata files are available, a setup failure appends an error summary, but produces no artifact output if no report was created. If publishing GitHub metadata fails after an otherwise passing run, the command exits with `2`; an existing failed or interrupted verification keeps its exit code.
+
+The flag does not upload evidence or call GitHub's API. A workflow must upload the exact `report-directory` output and add the artifact link after upload. See [GitHub Actions](github-actions.md) for the workflow, retention, and pull request navigation.
+
+Keep `.proofpatch/` in your application's `.gitignore`. Reports are kept per run; remove old run directories when no longer needed. Reports, logs, and screenshots can contain application data, so review their contents before sharing them or uploading them from public repository CI.
 
 The configuration schema is [proofpatch.schema.json](../proofpatch.schema.json). Unknown fields are rejected to catch typos.
