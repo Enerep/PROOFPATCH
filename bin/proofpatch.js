@@ -7,11 +7,12 @@ import { runCommand } from '../src/runner.js';
 import { runBrowserChecks } from '../src/browser.js';
 import { gitContext, summarize, writeReports, version } from '../src/report.js';
 import { assessRequirements, summarizeRequirements } from '../src/requirements.js';
+import { validateGithubEnvironment, publishGithubReport, publishGithubError } from '../src/github.js';
 
 const help = `ProofPatch ${version}
 
 Usage:
-  proofpatch verify [--cwd <directory>] [--json]
+  proofpatch verify [--cwd <directory>] [--json] [--github]
   proofpatch init [--cwd <directory>]
   proofpatch --help
   proofpatch --version
@@ -19,6 +20,7 @@ Usage:
 verify   Run checks and save reports in .proofpatch/<run-id>/.
 init     Create proofpatch.config.json from existing package scripts.
 --json   Print the complete report as JSON; send progress to stderr.
+--github Append a GitHub Actions job summary and current-run step outputs.
 
 Declared requirements need linked passing checks; uncovered requirements are unverified.
 Exit codes: 0 passed, 1 failed/incomplete, 2 setup/configuration error, 130 interrupted.
@@ -45,6 +47,7 @@ function parseArgs(args) {
   if (!['verify', 'init'].includes(command)) throw new Error(`Unknown command: ${command}. Run proofpatch --help.`);
   let cwd = process.cwd();
   let json = false;
+  let github = false;
   while (args.length) {
     const option = args.shift();
     if (option === '--cwd') {
@@ -52,10 +55,11 @@ function parseArgs(args) {
       if (!value || value.startsWith('--')) throw new Error('--cwd needs a directory.');
       cwd = resolve(value);
     } else if (option === '--json' && command === 'verify') json = true;
+    else if (option === '--github' && command === 'verify') github = true;
     else if (['--help', '-h'].includes(option)) return { command: 'help' };
     else throw new Error(`Unknown option: ${option}. Run proofpatch --help.`);
   }
-  return { command, cwd, json };
+  return { command, cwd, json, github };
 }
 
 async function init(cwd) {
@@ -71,8 +75,9 @@ async function init(cwd) {
   console.log('Created proofpatch.config.json. Edit the checks, then run proofpatch verify.');
 }
 
-async function verify({ cwd, json }) {
+async function verify({ cwd, json, github }) {
   if (process.env.PROOFPATCH_RUNNING === '1') throw new Error('A check tried to run ProofPatch recursively. Remove proofpatch verify from the checks it runs.');
+  if (github) validateGithubEnvironment();
   const started = performance.now();
   const startedAt = new Date().toISOString();
   const config = await loadConfig(cwd);
@@ -131,6 +136,15 @@ async function verify({ cwd, json }) {
       reportDirectory: relative(cwd, runDir).split('\\').join('/'),
     };
     await writeReports(report, runDir);
+    let exitCode = controller.signal.aborted ? 130 : summary.status === 'passed' ? 0 : 1;
+    if (github) {
+      try {
+        await publishGithubReport(report, runDir);
+      } catch (error) {
+        console.error(`ProofPatch: Could not publish GitHub Actions results: ${error.message}`);
+        if (exitCode === 0) exitCode = 2;
+      }
+    }
     if (json) console.log(JSON.stringify(report, null, 2));
     else {
       for (const check of checks.filter((item) => item.status === 'skipped')) progress(`SKIP  ${check.name} — ${check.reason}`);
@@ -146,20 +160,28 @@ async function verify({ cwd, json }) {
       progress(`Report: ${join(report.reportDirectory, 'report.md')}`);
       progress('Only the checks listed above were verified.');
     }
-    process.exitCode = controller.signal.aborted ? 130 : summary.status === 'passed' ? 0 : 1;
+    process.exitCode = exitCode;
   } finally {
     process.removeListener('SIGINT', interrupt);
     process.removeListener('SIGTERM', interrupt);
   }
 }
 
+let options;
 try {
-  const options = parseArgs(process.argv.slice(2));
+  options = parseArgs(process.argv.slice(2));
   if (options.command === 'help') console.log(help);
   else if (options.command === 'version') console.log(version);
   else if (options.command === 'init') await init(options.cwd);
   else await verify(options);
 } catch (error) {
   console.error(`ProofPatch: ${error.message}`);
+  if (options?.github && process.env.GITHUB_STEP_SUMMARY?.trim() && process.env.GITHUB_OUTPUT?.trim()) {
+    try {
+      await publishGithubError(error);
+    } catch (summaryError) {
+      console.error(`ProofPatch: Could not publish GitHub Actions error summary: ${summaryError.message}`);
+    }
+  }
   process.exitCode = 2;
 }

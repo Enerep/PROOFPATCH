@@ -90,6 +90,10 @@ npm run demo
 
 The demo tests adding a note and rejecting blank notes. Run `npm run demo:broken` to check the same criteria against an intentionally buggy version and see a failure. Follow the [bug walkthrough](docs/bug-demo.md) to inspect the evidence and fix it. See [configuration](docs/configuration.md) for all options.
 
+## Evidence in GitHub Actions
+
+Run verification with `--github` to add results to the job summary, then upload that run's report, logs, and screenshots as an artifact. See the [GitHub Actions guide](docs/github-actions.md) for a copyable workflow and where to find the evidence from a pull request.
+
 ## Keep the result in perspective
 
 A pass means the configured checks passed during this run and any declared requirements have passing linked evidence. Test quality and scenario coverage determine what that tells you; linking a check does not establish that it adequately tests a requirement. Missing checks appear as skipped; an empty project cannot pass. ProofPatch does not generate tests, audit security, or prove that an application is bug-free.
