@@ -64,7 +64,7 @@ If `checks` is omitted, package scripts are discovered. To run only browser scen
 | `expectCount` | `selector`, `count`; optional `forMs` | Wait for exactly `count` matching DOM nodes, including hidden nodes. |
 | `expectHidden` | `selector`; optional `forMs` | Wait for the element to be hidden or detached. |
 
-Selectors use Playwright locator syntax. Each scenario gets a fresh browser context. Browser scenarios run in headless Chromium; every action and navigation uses `timeoutMs` (default 15 seconds). `startupTimeoutMs` defaults to 30 seconds. Each timeout must be an integer from 1 to 3,600,000 milliseconds.
+Selectors use Playwright locator syntax. Each scenario gets a fresh browser context. Browser scenarios run in headless Chromium; every action and navigation uses `timeoutMs` (default 15 seconds). Launching Chromium may take up to 30 seconds, or `timeoutMs` if that is longer, so a short action timeout does not fail a slow browser start. `startupTimeoutMs` defaults to 30 seconds. Each timeout must be an integer from 1 to 3,600,000 milliseconds.
 
 `count` must be a nonnegative integer. `expectHidden` uses Playwright's visibility rules: detached elements, an empty bounding box, and `visibility: hidden` count as hidden; `opacity: 0` alone does not. Use `expectCount` with `count: 0` when no matching DOM node should exist.
 
