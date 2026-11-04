@@ -261,3 +261,32 @@ test('interrupting Chromium launch lets the whole host exit promptly and stops o
   }
   assert.ok(closed, 'the interrupted browser executable must be stopped');
 });
+
+test('a slow Chromium launch is not limited by the per-action browser timeout', {
+  skip: !browserEnabled || process.platform === 'win32',
+}, async (t) => {
+  const options = await fixture(t);
+  const baseUrl = await listen(t, (request, response) => {
+    response.setHeader('content-type', 'text/html');
+    if (request.url === '/favicon.ico') { response.writeHead(204); response.end(); return; }
+    response.end('<h1>Ready</h1>');
+  });
+  const actualExecutable = process.env.PROOFPATCH_CHROMIUM_EXECUTABLE_PATH || (await import('playwright')).chromium.executablePath();
+  const wrapper = path.join(options.cwd, 'slow-chromium.sh');
+  const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
+  await writeFile(wrapper, `#!/bin/sh\nsleep 2.5\nexec ${quote(actualExecutable)} "$@"\n`);
+  await chmod(wrapper, 0o755);
+  const previous = process.env.PROOFPATCH_CHROMIUM_EXECUTABLE_PATH;
+  process.env.PROOFPATCH_CHROMIUM_EXECUTABLE_PATH = wrapper;
+  t.after(() => {
+    if (previous === undefined) delete process.env.PROOFPATCH_CHROMIUM_EXECUTABLE_PATH;
+    else process.env.PROOFPATCH_CHROMIUM_EXECUTABLE_PATH = previous;
+  });
+  const results = await runBrowserChecks(config(baseUrl, {
+    timeoutMs: 2_000,
+    scenarios: [{ name: 'Home', path: '/', steps: [{ action: 'expectText', text: 'Ready' }] }],
+  }), options);
+  assert.equal(results.length, 1, JSON.stringify(results));
+  assert.equal(results[0].name, 'Browser: Home', JSON.stringify(results));
+  assert.equal(results[0].status, 'passed', JSON.stringify(results));
+});

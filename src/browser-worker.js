@@ -6,6 +6,9 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 const LOG_LIMIT = 128 * 1024;
 const ERROR_LIMIT = 8 * 1024;
+// Chromium startup is independent of page responsiveness. A cold first launch
+// can take seconds, so browser.timeoutMs only lengthens this minimum.
+const MIN_LAUNCH_TIMEOUT_MS = 30_000;
 
 function errorText(error) {
   return String(error?.message ?? error).slice(0, ERROR_LIMIT);
@@ -273,9 +276,10 @@ async function runBrowserChecks(config, { cwd, runDir, signal, onProgress = () =
       throw new Error(`Browser checks require Playwright. Install ProofPatch with its optional dependencies, then run npx playwright install chromium. (${errorText(error)})`);
     }
     const executablePath = process.env.PROOFPATCH_CHROMIUM_EXECUTABLE_PATH;
+    const launchTimeoutMs = Math.max(MIN_LAUNCH_TIMEOUT_MS, config.timeoutMs);
     try {
       const launchPromise = chromium.launch({
-        headless: true, timeout: config.timeoutMs,
+        headless: true, timeout: launchTimeoutMs,
         ...(executablePath ? { executablePath } : {}),
       });
       // If interrupted during launch, close a browser that finishes launching later.
@@ -284,6 +288,9 @@ async function runBrowserChecks(config, { cwd, runDir, signal, onProgress = () =
       }).catch(() => {});
       browser = await untilAborted(launchPromise, signal);
     } catch (error) {
+      if (error?.name === 'TimeoutError' && !signal?.aborted) {
+        throw new Error(`Chromium did not finish launching within ${launchTimeoutMs}ms. The machine may be overloaded, or the configured executable may be hanging.\n${errorText(error)}`);
+      }
       throw new Error(`Could not launch Chromium. Run npx playwright install chromium, or set PROOFPATCH_CHROMIUM_EXECUTABLE_PATH to an installed Chromium executable.\n${errorText(error)}`);
     }
     abortListener = () => { browser.close().catch(() => {}); };
