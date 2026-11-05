@@ -235,7 +235,7 @@ async function fileExists(filename) {
   }
 }
 
-async function detectPackageManager(cwd, manifest) {
+export async function detectPackageManager(cwd, manifest) {
   const matches = await Promise.all(Object.entries(LOCKFILES).map(async ([manager, filenames]) => {
     const present = await Promise.all(filenames.map((filename) => fileExists(path.join(cwd, filename))));
     return present.some(Boolean) ? manager : null;
@@ -256,10 +256,18 @@ async function detectPackageManager(cwd, manifest) {
   return managers[0] || 'npm';
 }
 
-async function discoverChecks(cwd) {
+export async function loadPackageManifest(cwd, { required = false } = {}) {
   const manifest = await readJson(path.join(cwd, 'package.json'), true);
+  if (required && manifest === undefined) {
+    throw new Error('package.json is required for GitHub workflow setup. Run this command in an npm project directory.');
+  }
   if (manifest !== undefined) object(manifest, 'package.json');
   if (manifest?.scripts !== undefined) object(manifest.scripts, 'package.json.scripts');
+  return manifest;
+}
+
+async function discoverChecks(cwd) {
+  const manifest = await loadPackageManifest(cwd);
   const manager = await detectPackageManager(cwd, manifest);
   const checks = [];
   const skipped = [];

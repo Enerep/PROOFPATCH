@@ -1,4 +1,4 @@
-# Copy to .github/workflows/proofpatch.yml after adding proofpatch.config.json.
+# Run proofpatch init --github, or copy this to .github/workflows/proofpatch.yml.
 # Update the pinned ProofPatch commit when adopting a newer reviewed version.
 name: ProofPatch
 
@@ -24,7 +24,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Enerep/PROOFPATCH
-          ref: ff286b1f0cc7d325d43bb9c64402cfc883a5868b
+          ref: 6a9faf310c95ba13cc4e6d9f1be4fdd6e1cf8f8a
           path: proofpatch
       - uses: actions/setup-node@v4
         with:

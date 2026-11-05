@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdir, writeFile, access } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import { join, resolve, relative } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { loadConfig } from '../src/config.js';
@@ -8,19 +8,21 @@ import { runBrowserChecks } from '../src/browser.js';
 import { gitContext, summarize, writeReports, version } from '../src/report.js';
 import { assessRequirements, summarizeRequirements } from '../src/requirements.js';
 import { validateGithubEnvironment, publishGithubReport, publishGithubError } from '../src/github.js';
+import { initialize } from '../src/init.js';
 
 const help = `ProofPatch ${version}
 
 Usage:
   proofpatch verify [--cwd <directory>] [--json] [--github]
-  proofpatch init [--cwd <directory>]
+  proofpatch init [--cwd <directory>] [--github]
   proofpatch --help
   proofpatch --version
 
 verify   Run checks and save reports in .proofpatch/<run-id>/.
 init     Create proofpatch.config.json from existing package scripts.
 --json   Print the complete report as JSON; send progress to stderr.
---github Append a GitHub Actions job summary and current-run step outputs.
+--github verify: append a GitHub Actions summary and step outputs.
+         init: create a local GitHub Actions workflow for an npm project.
 
 Declared requirements need linked passing checks; uncovered requirements are unverified.
 Exit codes: 0 passed, 1 failed/incomplete, 2 setup/configuration error, 130 interrupted.
@@ -55,24 +57,23 @@ function parseArgs(args) {
       if (!value || value.startsWith('--')) throw new Error('--cwd needs a directory.');
       cwd = resolve(value);
     } else if (option === '--json' && command === 'verify') json = true;
-    else if (option === '--github' && command === 'verify') github = true;
+    else if (option === '--github') github = true;
     else if (['--help', '-h'].includes(option)) return { command: 'help' };
     else throw new Error(`Unknown option: ${option}. Run proofpatch --help.`);
   }
   return { command, cwd, json, github };
 }
 
-async function init(cwd) {
-  const path = join(cwd, 'proofpatch.config.json');
-  try {
-    await access(path);
-    throw new Error('proofpatch.config.json already exists. Edit it to change your checks.');
-  } catch (error) {
-    if (error.code !== 'ENOENT') throw error;
+async function init({ cwd, github }) {
+  const result = await initialize(cwd, { github });
+  if (!github) {
+    console.log('Created proofpatch.config.json. Edit the checks, then run proofpatch verify.');
+    return;
   }
-  const config = await loadConfig(cwd);
-  await writeFile(path, `${JSON.stringify({ checks: config.checks.map(({ name, command, timeoutMs }) => ({ name, command, timeoutMs })) }, null, 2)}\n`, { flag: 'wx' });
-  console.log('Created proofpatch.config.json. Edit the checks, then run proofpatch verify.');
+  console.log(`${result.configCreated ? 'Created' : 'Preserved'} proofpatch.config.json.`);
+  console.log('Created .github/workflows/proofpatch.yml.');
+  if (!result.browserConfigured) console.log('Browser scenarios are not configured. If you add them later, also add Chromium installation to the workflow.');
+  console.log('Review the configuration and workflow, then commit and push them to run ProofPatch on GitHub.');
 }
 
 async function verify({ cwd, json, github }) {
@@ -172,11 +173,11 @@ try {
   options = parseArgs(process.argv.slice(2));
   if (options.command === 'help') console.log(help);
   else if (options.command === 'version') console.log(version);
-  else if (options.command === 'init') await init(options.cwd);
+  else if (options.command === 'init') await init(options);
   else await verify(options);
 } catch (error) {
   console.error(`ProofPatch: ${error.message}`);
-  if (options?.github && process.env.GITHUB_STEP_SUMMARY?.trim() && process.env.GITHUB_OUTPUT?.trim()) {
+  if (options?.command === 'verify' && options.github && process.env.GITHUB_STEP_SUMMARY?.trim() && process.env.GITHUB_OUTPUT?.trim()) {
     try {
       await publishGithubError(error);
     } catch (summaryError) {
