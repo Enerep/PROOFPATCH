@@ -2,17 +2,48 @@
 
 ProofPatch can add verification results to a GitHub Actions job summary and expose the current run's evidence directory for upload. It uses the runner's existing files; there is no API integration, extra account, AI service, or new key to configure.
 
-## Add the workflow
+## Set up once in your app
 
-Copy [examples/github-actions.yml](../examples/github-actions.yml) to `.github/workflows/proofpatch.yml` in your application repository. The example is for an npm web app on Node.js 22. It checks out the app and ProofPatch into sibling directories, installs both, installs Chromium, and runs this from the application directory:
+Install ProofPatch from source and run `npm link` as described in the [README](../README.md#try-it). The npm package is not published yet.
+
+Your npm app needs `package.json` and a committed `package-lock.json` or `npm-shrinkwrap.json`. If you want browser coverage, [prepare the browser configuration](#include-browser-checks) first. From your app's repository, run:
 
 ```sh
-node ../proofpatch/bin/proofpatch.js verify --github
+cd /path/to/app
+proofpatch init --github
 ```
 
-The ProofPatch checkout is pinned to a reviewed source commit. The npm package is not published yet, so this workflow uses the source checkout. Review and update that pin when adopting a later version.
+Without `npm link`, run this from any directory:
 
-Commit a `proofpatch.config.json` in your application. For example, adapt this plan to your server command, URL, scripts, and rendered text:
+```sh
+node /path/to/PROOFPATCH/bin/proofpatch.js init --github --cwd /path/to/your/app
+```
+
+`/path/to/PROOFPATCH` is the tool's source checkout. `--cwd /path/to/your/app` selects your application repository, where the new files belong.
+
+This local setup command creates `.github/workflows/proofpatch.yml`. It preserves a valid existing `proofpatch.config.json` exactly; if none exists, it creates a configuration from discovered package scripts. It refuses to overwrite an existing `proofpatch.yml` or `proofpatch.yaml` in `.github/workflows/`.
+
+The command writes setup files only. It does not install dependencies, execute checks, contact GitHub's API, commit, or push. It does not need `GITHUB_STEP_SUMMARY` or `GITHUB_OUTPUT` on your machine.
+
+Review the configuration and workflow, then commit and push them in your application repository:
+
+```sh
+git add proofpatch.config.json .github/workflows/proofpatch.yml
+git commit -m "Add ProofPatch verification"
+git push
+```
+
+The push triggers GitHub Actions. The generated workflow uses Node.js 22, checks out your app and a reviewed, pinned ProofPatch source commit, installs dependencies, and runs `verify --github`. Keep the npm lockfile committed so the runner can use `npm ci`. Review and update the ProofPatch pin when adopting a later version.
+
+| Command | Where it runs | What it does |
+| --- | --- | --- |
+| `proofpatch verify` | Your machine | Runs checks and saves local evidence. |
+| `proofpatch init --github` | Your machine, once | Writes configuration if needed and the workflow. |
+| `proofpatch verify --github` | GitHub Actions runner | Runs checks, saves evidence, and publishes job-summary metadata. |
+
+## Include browser checks
+
+The generator does not invent requirements or browser scenarios. Create or edit `proofpatch.config.json` before running `init --github` if you want browser coverage. For example, adapt this plan to your server command, URL, scripts, and rendered text:
 
 ```json
 {
@@ -37,7 +68,17 @@ Commit a `proofpatch.config.json` in your application. For example, adapt this p
 }
 ```
 
-Use actual acceptance criteria and assertions for your app. Change the application install command if you use pnpm, Yarn, or Bun. For command-only checks, omit `browser` and the workflow's Chromium install step. See [configuration](configuration.md) for the available actions and requirement links.
+Use actual acceptance criteria and assertions for your app. When this browser configuration exists, the generated workflow includes Chromium installation. For a configuration with only command checks, it skips that installation. If you add browser scenarios after setting up the workflow, add the Chromium install step from the manual example; the generator will not overwrite the existing workflow. See [configuration](configuration.md) for actions and requirement links.
+
+## Manual setup
+
+For pnpm, Yarn, Bun, or a customized workflow, copy [examples/github-actions.yml](../examples/github-actions.yml) to `.github/workflows/proofpatch.yml` and adapt it. The example targets an npm web app; change its application install command and cache settings for another package manager. Omit the Chromium install step for command-only checks.
+
+Both workflows check out the app and ProofPatch into sibling directories. They run this from the application directory:
+
+```sh
+node ../proofpatch/bin/proofpatch.js verify --github
+```
 
 The workflow uses ordinary `pull_request` events and `contents: read` permissions, including for fork pull requests. It does not need `pull_request_target`, write permissions, or a service connection.
 
@@ -83,6 +124,6 @@ Screenshots are evidence files in the downloaded ZIP. This integration does not 
 
 The flag preserves normal verification results: `PASSED` exits with `0`; `FAILED` and `INCOMPLETE` exit with `1`; invalid configuration or setup exits with `2`; interruption exits with `130`.
 
-GitHub Actions supplies `GITHUB_STEP_SUMMARY` and `GITHUB_OUTPUT` as writable runner files. Running `--github` without those files is a setup error. Use `proofpatch verify` for an ordinary local run.
+GitHub Actions supplies `GITHUB_STEP_SUMMARY` and `GITHUB_OUTPUT` as writable runner files. Running `verify --github` without those files is a setup error. `init --github` creates files locally and does not require them. Use `proofpatch verify` for an ordinary local run.
 
 Setup failures append an error summary when possible. If no report was created, there is no report-directory output, so the upload step is skipped. If publishing metadata fails after verification otherwise passed, ProofPatch exits with `2`. An already failed or interrupted verification keeps its exit code, and its local evidence remains available when it was written successfully.

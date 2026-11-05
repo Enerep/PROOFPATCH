@@ -23,6 +23,10 @@ This never overwrites an existing file. If your project has no supported package
 }
 ```
 
+To also create a GitHub Actions workflow for an npm app, run `proofpatch init --github` locally, optionally with `--cwd /path/to/app`. It requires `package.json` and an npm lockfile that you commit with the app: `package-lock.json` or `npm-shrinkwrap.json`. It preserves a valid existing configuration exactly, or creates one from discovered scripts. It refuses an existing `.github/workflows/proofpatch.yml` or `proofpatch.yaml`.
+
+This setup command writes files without installing dependencies, running checks, contacting GitHub, or committing or pushing. It needs no GitHub runner environment. The workflow includes Chromium installation only when the configuration already has browser scenarios; requirements and scenarios are not generated. See [GitHub Actions](github-actions.md) for the complete workflow and manual setup for other package managers.
+
 Commands use your system shell from the project directory. Custom commands can verify non-JavaScript projects too. They must exit on completion and use a nonzero exit code on failure. ProofPatch continues after failures so the report includes all checks.
 
 Commands default to a two-minute timeout. Output is limited to 1 MiB each for stdout and stderr, with a truncation marker. The runner sets `CI=1` unless you already set it, to discourage interactive prompts and watch mode. Background processes in a command's process group are stopped on Unix. On Windows, cleanup uses `taskkill`; commands should not leave background processes after exiting.
@@ -149,7 +153,7 @@ JSON reports use `schemaVersion: 2`. The `requirements` array records each decla
 | `2` | Invalid arguments, configuration, or a setup/write error. |
 | `130` | Run interrupted; a partial report is saved when possible. |
 
-For GitHub Actions, opt in to a job summary and step outputs:
+After committing and pushing the workflow created by `proofpatch init --github`, GitHub Actions runs verification with a job summary and step outputs:
 
 ```sh
 proofpatch verify --github
