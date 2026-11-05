@@ -92,7 +92,13 @@ The demo tests adding a note and rejecting blank notes. Run `npm run demo:broken
 
 ## Evidence in GitHub Actions
 
-Run verification with `--github` to add results to the job summary, then upload that run's report, logs, and screenshots as an artifact. See the [GitHub Actions guide](docs/github-actions.md) for a copyable workflow and where to find the evidence from a pull request.
+After `npm link`, set up the workflow once from your npm app with a committed lockfile:
+
+```sh
+proofpatch init --github
+```
+
+This creates the workflow and a configuration if needed. Review, commit, and push those files; GitHub Actions then runs verification and uploads that run's evidence. Ordinary `proofpatch verify` stays local. See the [GitHub Actions guide](docs/github-actions.md) for the full setup and pull request results.
 
 ## Keep the result in perspective
 

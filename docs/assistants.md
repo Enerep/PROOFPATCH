@@ -70,6 +70,12 @@ Each requirement is `passed` when all its linked results pass, `failed` when any
 
 These links are an explicit coverage plan. ProofPatch cannot tell whether the assistant copied all the user's criteria or wrote adequate assertions. Review the plan and evidence along with the code.
 
+## Run the same plan in GitHub Actions
+
+Once your configuration is ready, run `proofpatch init --github` locally in an npm app with a committed lockfile. It preserves your existing plan and writes a workflow; it does not invent criteria, install dependencies, run checks, or commit or push.
+
+Review and commit the generated workflow, then push it to run the plan in GitHub Actions. The runner calls `proofpatch verify --github` and uploads evidence. Ordinary `proofpatch verify` continues to run locally. See the [GitHub Actions guide](github-actions.md) for setup and where to find results.
+
 ## Optional AGENTS.md guidance for your project
 
 Add this to the `AGENTS.md` in the application you are building:
